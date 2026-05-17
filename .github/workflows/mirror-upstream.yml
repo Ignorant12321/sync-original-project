@@ -1,0 +1,25 @@
+name: Mirror upstream to fork
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mirror upstream repository to fork
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -e
+
+          UPSTREAM_REPO="https://github.com/cmliu/edgetunnel.git"
+          TARGET_REPO="https://x-access-token:${GH_PAT}@github.com/wischrismbers/edgetunnel.git"
+
+          git clone --mirror "$UPSTREAM_REPO" upstream.git
+          cd upstream.git
+
+          git push --mirror "$TARGET_REPO"
