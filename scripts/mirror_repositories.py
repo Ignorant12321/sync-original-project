@@ -31,6 +31,21 @@ class MirrorResult:
     total: int
     succeeded: int
     failed: int
+    failures: tuple = ()
+
+
+@dataclass(frozen=True)
+class MirrorFailure:
+    name: str
+    upstream: str
+    target: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    ok: bool
+    reason: str = ""
 
 
 def load_repositories(config_path):
@@ -97,8 +112,27 @@ def default_runner(command):
         command,
         check=False,
         env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        stderr=subprocess.STDOUT,
+        stdout=subprocess.PIPE,
+        text=True,
     )
-    return result.returncode == 0
+    if result.stdout:
+        print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+    reason = command_failure_reason(result.stdout, result.returncode)
+    return CommandResult(result.returncode == 0, reason)
+
+
+def command_failure_reason(output, returncode):
+    lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
+    if lines:
+        return lines[-1]
+    return f"Command exited with status {returncode}"
+
+
+def normalize_command_result(result):
+    if isinstance(result, CommandResult):
+        return result
+    return CommandResult(bool(result))
 
 
 def mirror_repositories(repositories, environ=None, runner=None):
@@ -107,6 +141,7 @@ def mirror_repositories(repositories, environ=None, runner=None):
     total = 0
     succeeded = 0
     failed = 0
+    failures = []
 
     with tempfile.TemporaryDirectory() as work_dir:
         for repository in repositories:
@@ -116,29 +151,57 @@ def mirror_repositories(repositories, environ=None, runner=None):
 
             print(f"::group::Mirror {repository.name}")
             if not token:
-                print(f"::error::Missing token environment variable: {repository.token_env}")
+                reason = f"Missing token environment variable: {repository.token_env}"
+                print(f"::error::{reason}")
+                failures.append(
+                    MirrorFailure(
+                        name=repository.name,
+                        upstream=repository.upstream,
+                        target=repository.target,
+                        reason=reason,
+                    )
+                )
                 failed += 1
                 print("::endgroup::")
                 continue
 
             print(f"::add-mask::{token}")
             target_url = build_target_url(repository.target, token)
-            clone_ok = run(["git", "clone", "--mirror", repository.upstream, str(repo_dir)])
-            push_ok = False
-            if clone_ok:
-                push_ok = run(["git", "-C", str(repo_dir), "push", "--mirror", target_url])
+            clone_result = normalize_command_result(
+                run(["git", "clone", "--mirror", repository.upstream, str(repo_dir)])
+            )
+            push_result = CommandResult(False)
+            if clone_result.ok:
+                push_result = normalize_command_result(
+                    run(["git", "-C", str(repo_dir), "push", "--mirror", target_url])
+                )
 
-            if clone_ok and push_ok:
+            if clone_result.ok and push_result.ok:
                 print(f"Mirror succeeded: {repository.upstream} -> {repository.target}")
                 succeeded += 1
             else:
-                print(f"::error::Mirror failed: {repository.upstream} -> {repository.target}")
+                if clone_result.ok:
+                    reason = push_result.reason or "git push --mirror failed"
+                else:
+                    reason = clone_result.reason or "git clone --mirror failed"
+                print(
+                    f"::error::Mirror failed: {repository.name}: "
+                    f"{repository.upstream} -> {repository.target} ({reason})"
+                )
+                failures.append(
+                    MirrorFailure(
+                        name=repository.name,
+                        upstream=repository.upstream,
+                        target=repository.target,
+                        reason=reason,
+                    )
+                )
                 failed += 1
 
             shutil.rmtree(repo_dir, ignore_errors=True)
             print("::endgroup::")
 
-    return MirrorResult(total=total, succeeded=succeeded, failed=failed)
+    return MirrorResult(total=total, succeeded=succeeded, failed=failed, failures=tuple(failures))
 
 
 def parse_args(argv):
@@ -162,7 +225,11 @@ def main(argv=None):
     result = mirror_repositories(repositories)
     print(f"Mirror summary: {result.succeeded}/{result.total} succeeded, {result.failed} failed.")
     if result.failed:
-        print("::warning::Some repositories failed, but the job is configured to continue.")
+        print("Failed repositories:")
+        for failure in result.failures:
+            print(f"- {failure.name}: {failure.upstream} -> {failure.target} ({failure.reason})")
+        print("::error::Some repositories failed.")
+        return 1
     return 0
 
 
