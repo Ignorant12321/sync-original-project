@@ -1,0 +1,8 @@
+[
+  {
+    "name": "edgetunnel",
+    "upstream": "https://github.com/cmliu/edgetunnel.git",
+    "target": "wischrismbers/edgetunnel",
+    "token_env": "GH_PAT"
+  }
+]
