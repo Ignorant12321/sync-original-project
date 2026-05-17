@@ -46,6 +46,7 @@ class MirrorFailure:
 class CommandResult:
     ok: bool
     reason: str = ""
+    output: str = ""
 
 
 def load_repositories(config_path):
@@ -119,7 +120,7 @@ def default_runner(command):
     if result.stdout:
         print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
     reason = command_failure_reason(result.stdout, result.returncode)
-    return CommandResult(result.returncode == 0, reason)
+    return CommandResult(result.returncode == 0, reason, result.stdout or "")
 
 
 def command_failure_reason(output, returncode):
@@ -133,6 +134,27 @@ def normalize_command_result(result):
     if isinstance(result, CommandResult):
         return result
     return CommandResult(bool(result))
+
+
+def remove_pull_request_refs(repo_dir, runner):
+    list_result = normalize_command_result(
+        runner(["git", "-C", str(repo_dir), "for-each-ref", "--format=%(refname)", "refs/pull"])
+    )
+    if not list_result.ok:
+        return list_result
+
+    refs = [line.strip() for line in list_result.output.splitlines() if line.strip()]
+    if refs:
+        print(f"Removing {len(refs)} GitHub pull request refs before mirror push.")
+
+    for ref in refs:
+        delete_result = normalize_command_result(
+            runner(["git", "-C", str(repo_dir), "update-ref", "-d", ref])
+        )
+        if not delete_result.ok:
+            return CommandResult(False, delete_result.reason or f"Failed to remove {ref}")
+
+    return CommandResult(True)
 
 
 def mirror_repositories(repositories, environ=None, runner=None):
@@ -172,9 +194,13 @@ def mirror_repositories(repositories, environ=None, runner=None):
             )
             push_result = CommandResult(False)
             if clone_result.ok:
-                push_result = normalize_command_result(
-                    run(["git", "-C", str(repo_dir), "push", "--mirror", target_url])
-                )
+                cleanup_result = remove_pull_request_refs(repo_dir, run)
+                if cleanup_result.ok:
+                    push_result = normalize_command_result(
+                        run(["git", "-C", str(repo_dir), "push", "--mirror", target_url])
+                    )
+                else:
+                    push_result = cleanup_result
 
             if clone_result.ok and push_result.ok:
                 print(f"Mirror succeeded: {repository.upstream} -> {repository.target}")

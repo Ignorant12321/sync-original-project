@@ -2,7 +2,19 @@
   {
     "name": "edgetunnel",
     "upstream": "https://github.com/cmliu/edgetunnel.git",
-    "target": "wischrismbers/edgetunnel",
+    "target": "wischrismbers/edgetunnel-ig",
+    "token_env": "GH_PAT"
+  },
+  {
+    "name": "edgetunnel-2",
+    "upstream": "https://github.com/cmliu/edgetunnel.git",
+    "target": "wischrismbers/edgetunnel-ig-02",
+    "token_env": "GH_PAT"
+  },
+    {
+    "name": "edgetunnel-3",
+    "upstream": "https://github.com/cmliu/edgetunnel.git",
+    "target": "wischrismbers/edgetunnel-ig-03",
     "token_env": "GH_PAT"
   }
 ]

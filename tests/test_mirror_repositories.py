@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts.mirror_repositories import (
+    CommandResult,
     ConfigError,
     MirrorResult,
     build_target_url,
@@ -120,6 +121,41 @@ class MirrorRepositoriesTest(unittest.TestCase):
         self.assertEqual(result.failures[0].reason, "Missing token environment variable: GH_PAT_MISSING")
         self.assertEqual(result.failures[1].name, "clone-fails")
         self.assertEqual(result.failures[1].reason, "git clone --mirror failed")
+
+    def test_mirror_repositories_removes_pull_request_refs_before_push(self):
+        repositories = load_repositories(
+            self.write_config(
+                [
+                    {
+                        "name": "with-pull-refs",
+                        "upstream": "https://github.com/example/source.git",
+                        "target": "example/target",
+                        "token_env": "GH_PAT",
+                    }
+                ]
+            )
+        )
+        calls = []
+
+        def runner(command):
+            calls.append(command)
+            if command[3] == "for-each-ref":
+                return CommandResult(True, output="refs/pull/1/head\n")
+            return True
+
+        result = mirror_repositories(
+            repositories,
+            {"GH_PAT": "secret-token"},
+            runner=runner,
+        )
+
+        self.assertEqual(result.succeeded, 1)
+        self.assertEqual(calls[0][:3], ["git", "clone", "--mirror"])
+        self.assertEqual(calls[1][:5], ["git", "-C", calls[0][4], "for-each-ref", "--format=%(refname)"])
+        self.assertEqual(calls[1][5], "refs/pull")
+        self.assertEqual(calls[2][:4], ["git", "-C", calls[0][4], "update-ref"])
+        self.assertEqual(calls[2][4], "-d")
+        self.assertEqual(calls[3][:5], ["git", "-C", calls[0][4], "push", "--mirror"])
 
     def test_main_returns_failure_when_any_repository_fails(self):
         path = self.write_config(
