@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import json
 import os
 import re
@@ -157,9 +158,49 @@ def remove_pull_request_refs(repo_dir, runner):
     return CommandResult(True)
 
 
-def mirror_repositories(repositories, environ=None, runner=None):
+def current_utc_timestamp():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def write_mirror_log_commit(target_url, worktree_dir, timestamp, runner):
+    clone_result = normalize_command_result(
+        runner(["git", "clone", target_url, str(worktree_dir)])
+    )
+    if not clone_result.ok:
+        return clone_result
+
+    worktree_dir.mkdir(parents=True, exist_ok=True)
+    (worktree_dir / "mirror-upstream.log").write_text(
+        f"Mirror upstream action run at: {timestamp}\n",
+        encoding="utf-8",
+    )
+
+    commands = [
+        ["git", "-C", str(worktree_dir), "config", "user.name", "github-actions[bot]"],
+        [
+            "git",
+            "-C",
+            str(worktree_dir),
+            "config",
+            "user.email",
+            "41898282+github-actions[bot]@users.noreply.github.com",
+        ],
+        ["git", "-C", str(worktree_dir), "add", "mirror-upstream.log"],
+        ["git", "-C", str(worktree_dir), "commit", "-m", "Update mirror upstream log"],
+        ["git", "-C", str(worktree_dir), "push"],
+    ]
+    for command in commands:
+        result = normalize_command_result(runner(command))
+        if not result.ok:
+            return result
+
+    return CommandResult(True)
+
+
+def mirror_repositories(repositories, environ=None, runner=None, timestamp_provider=None):
     env = environ if environ is not None else os.environ
     run = runner if runner is not None else default_runner
+    get_timestamp = timestamp_provider if timestamp_provider is not None else current_utc_timestamp
     total = 0
     succeeded = 0
     failed = 0
@@ -193,20 +234,31 @@ def mirror_repositories(repositories, environ=None, runner=None):
                 run(["git", "clone", "--mirror", repository.upstream, str(repo_dir)])
             )
             push_result = CommandResult(False)
+            log_result = CommandResult(False)
             if clone_result.ok:
                 cleanup_result = remove_pull_request_refs(repo_dir, run)
                 if cleanup_result.ok:
                     push_result = normalize_command_result(
                         run(["git", "-C", str(repo_dir), "push", "--mirror", target_url])
                     )
+                    if push_result.ok:
+                        worktree_dir = Path(work_dir) / f"repo-{total}-worktree"
+                        log_result = write_mirror_log_commit(
+                            target_url,
+                            worktree_dir,
+                            get_timestamp(),
+                            run,
+                        )
                 else:
                     push_result = cleanup_result
 
-            if clone_result.ok and push_result.ok:
+            if clone_result.ok and push_result.ok and log_result.ok:
                 print(f"Mirror succeeded: {repository.upstream} -> {repository.target}")
                 succeeded += 1
             else:
-                if clone_result.ok:
+                if clone_result.ok and push_result.ok:
+                    reason = log_result.reason or "mirror-upstream.log commit failed"
+                elif clone_result.ok:
                     reason = push_result.reason or "git push --mirror failed"
                 else:
                     reason = clone_result.reason or "git clone --mirror failed"

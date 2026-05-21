@@ -157,6 +157,56 @@ class MirrorRepositoriesTest(unittest.TestCase):
         self.assertEqual(calls[2][4], "-d")
         self.assertEqual(calls[3][:5], ["git", "-C", calls[0][4], "push", "--mirror"])
 
+    def test_mirror_repositories_commits_timestamp_log_after_mirror_push(self):
+        repositories = load_repositories(
+            self.write_config(
+                [
+                    {
+                        "name": "with-log",
+                        "upstream": "https://github.com/example/source.git",
+                        "target": "example/target",
+                        "token_env": "GH_PAT",
+                    }
+                ]
+            )
+        )
+        calls = []
+        log_texts = []
+
+        def runner(command):
+            calls.append(command)
+            if command[:3] == ["git", "clone", "https://x-access-token:secret-token@github.com/example/target.git"]:
+                Path(command[3]).mkdir(parents=True, exist_ok=True)
+            if len(command) >= 5 and command[3] == "add" and command[4] == "mirror-upstream.log":
+                log_texts.append((Path(command[2]) / "mirror-upstream.log").read_text(encoding="utf-8"))
+            if command[3] == "for-each-ref":
+                return CommandResult(True, output="")
+            return True
+
+        result = mirror_repositories(
+            repositories,
+            {"GH_PAT": "secret-token"},
+            runner=runner,
+            timestamp_provider=lambda: "2026-05-22T12:34:56Z",
+        )
+
+        self.assertEqual(result.succeeded, 1)
+        worktree_dir = next(
+            Path(call[3])
+            for call in calls
+            if call[:3] == ["git", "clone", "https://x-access-token:secret-token@github.com/example/target.git"]
+        )
+        self.assertEqual(
+            log_texts,
+            ["Mirror upstream action run at: 2026-05-22T12:34:56Z\n"],
+        )
+        self.assertIn(["git", "-C", str(worktree_dir), "add", "mirror-upstream.log"], calls)
+        self.assertIn(
+            ["git", "-C", str(worktree_dir), "commit", "-m", "Update mirror upstream log"],
+            calls,
+        )
+        self.assertIn(["git", "-C", str(worktree_dir), "push"], calls)
+
     def test_main_returns_failure_when_any_repository_fails(self):
         path = self.write_config(
             [
