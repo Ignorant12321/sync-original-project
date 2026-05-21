@@ -187,7 +187,7 @@ on:
 3. 删除本地 clone 中的 `refs/pull/*`，避免 GitHub 拒绝更新 hidden refs。
 4. 执行 `git push --mirror`，把目标仓库的分支、标签等引用更新成和上游一致。
 5. 普通 clone 目标仓库默认分支，在根目录写入 `mirror-upstream.log`。
-6. 提交并 push `mirror-upstream.log`，提交信息为 `Update mirror upstream log`。
+6. 使用 `git add -f mirror-upstream.log` 提交并 push 日志文件，提交信息为 `Update mirror upstream log`。
 7. 最后输出 `x/y succeeded` 和失败明细。
 
 `mirror-upstream.log` 的内容类似：
@@ -197,6 +197,8 @@ Mirror upstream action run at: 2026-05-22T12:34:56Z
 ```
 
 这样每次 Action 成功同步目标仓库后，目标仓库都会出现一个新的 commit。即使上游没有变化，Cloudflare Worker/Pages 绑定目标仓库时也能看到新的提交并触发部署。
+
+如果目标仓库的 `.gitignore` 忽略了 `*.log`，脚本也会强制添加 `mirror-upstream.log`，避免因为 ignored file 导致 Action 失败。
 
 需要注意：下一次 `git push --mirror` 会先把目标仓库恢复成上游引用状态，然后脚本再重新追加新的 `mirror-upstream.log` commit。这是为了让目标仓库代码主体始终跟随上游，同时保留一个用于触发部署的自动提交。
 

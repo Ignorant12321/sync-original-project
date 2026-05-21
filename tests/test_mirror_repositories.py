@@ -177,7 +177,7 @@ class MirrorRepositoriesTest(unittest.TestCase):
             calls.append(command)
             if command[:3] == ["git", "clone", "https://x-access-token:secret-token@github.com/example/target.git"]:
                 Path(command[3]).mkdir(parents=True, exist_ok=True)
-            if len(command) >= 5 and command[3] == "add" and command[4] == "mirror-upstream.log":
+            if len(command) >= 5 and command[3] == "add" and command[-1] == "mirror-upstream.log":
                 log_texts.append((Path(command[2]) / "mirror-upstream.log").read_text(encoding="utf-8"))
             if command[3] == "for-each-ref":
                 return CommandResult(True, output="")
@@ -200,7 +200,7 @@ class MirrorRepositoriesTest(unittest.TestCase):
             log_texts,
             ["Mirror upstream action run at: 2026-05-22T12:34:56Z\n"],
         )
-        self.assertIn(["git", "-C", str(worktree_dir), "add", "mirror-upstream.log"], calls)
+        self.assertIn(["git", "-C", str(worktree_dir), "add", "-f", "mirror-upstream.log"], calls)
         self.assertIn(
             ["git", "-C", str(worktree_dir), "commit", "-m", "Update mirror upstream log"],
             calls,

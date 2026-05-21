@@ -185,7 +185,7 @@ def write_mirror_log_commit(target_url, worktree_dir, timestamp, runner):
             "user.email",
             "41898282+github-actions[bot]@users.noreply.github.com",
         ],
-        ["git", "-C", str(worktree_dir), "add", "mirror-upstream.log"],
+        ["git", "-C", str(worktree_dir), "add", "-f", "mirror-upstream.log"],
         ["git", "-C", str(worktree_dir), "commit", "-m", "Update mirror upstream log"],
         ["git", "-C", str(worktree_dir), "push"],
     ]
