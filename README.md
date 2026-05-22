@@ -1,5 +1,8 @@
 # sync-original-project
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Ignorant12321/sync-original-project)
+[![Mirror upstream to fork](https://github.com/wischrismbers/sync-original-project/actions/workflows/mirror-upstream.yml/badge.svg)](https://github.com/wischrismbers/sync-original-project/actions/workflows/mirror-upstream.yml)
+
 这个仓库通过 GitHub Actions 定时把多个上游仓库镜像同步到目标仓库。同步使用 `git clone --mirror` 和 `git push --mirror`，会同步分支、标签等 Git 引用。
 
 默认每 3 天自动同步一次，也可以在 GitHub Actions 页面手动触发。
